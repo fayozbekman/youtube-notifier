@@ -1,0 +1,36 @@
+name: Repo Check Reminder
+
+on:
+  schedule:
+    - cron: "0 4 1 * *"
+  workflow_dispatch: {}
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send and pin Telegram reminder
+        shell: pwsh
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          $text = "repo gets zero commits - check the youtube-notifier GitHub Actions workflow and re-enable it if disabled"
+          $sendUri = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/sendMessage"
+          $sendBody = @{ chat_id = $env:TELEGRAM_CHAT_ID; text = $text } | ConvertTo-Json
+          $sendResult = Invoke-RestMethod -Uri $sendUri -Method Post -Body $sendBody -ContentType "application/json"
+          if (-not $sendResult.ok) {
+            Write-Error "sendMessage failed: $($sendResult | ConvertTo-Json -Compress)"
+            exit 1
+          }
+
+          $messageId = $sendResult.result.message_id
+          $pinUri = "https://api.telegram.org/bot$env:TELEGRAM_BOT_TOKEN/pinChatMessage"
+          $pinBody = @{ chat_id = $env:TELEGRAM_CHAT_ID; message_id = $messageId } | ConvertTo-Json
+          $pinResult = Invoke-RestMethod -Uri $pinUri -Method Post -Body $pinBody -ContentType "application/json"
+          if (-not $pinResult.ok) {
+            Write-Error "pinChatMessage failed: $($pinResult | ConvertTo-Json -Compress)"
+            exit 1
+          }
+
+          Write-Host "Reminder sent and pinned (message_id=$messageId)."
