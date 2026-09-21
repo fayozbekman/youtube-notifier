@@ -17,72 +17,7 @@ $ScriptDir = $PSScriptRoot
 $ChannelsPath = Join-Path $ScriptDir "channels.json"
 $StatePath = Join-Path $ScriptDir "state.json"
 
-function Escape-Html([string]$text) {
-    return $text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;")
-}
-
-function Get-Feed([string]$channelId) {
-    $url = "https://www.youtube.com/feeds/videos.xml?channel_id=$channelId"
-    $resp = Invoke-WebRequest -Uri $url -UserAgent "Mozilla/5.0" -UseBasicParsing
-    [xml]$xml = $resp.Content
-
-    $ns = New-Object System.Xml.XmlNamespaceManager($xml.NameTable)
-    $ns.AddNamespace("atom", "http://www.w3.org/2005/Atom")
-    $ns.AddNamespace("media", "http://search.yahoo.com/mrss/")
-    $ns.AddNamespace("yt", "http://www.youtube.com/xml/schemas/2015")
-
-    $entries = @()
-    foreach ($entry in $xml.SelectNodes("//atom:entry", $ns)) {
-        $videoId = $entry.SelectSingleNode("yt:videoId", $ns).InnerText
-        $title = $entry.SelectSingleNode("atom:title", $ns).InnerText
-        $linkNode = $entry.SelectSingleNode("atom:link", $ns)
-        $link = if ($linkNode) { $linkNode.GetAttribute("href") } else { "https://www.youtube.com/watch?v=$videoId" }
-        $thumbNode = $entry.SelectSingleNode("media:group/media:thumbnail", $ns)
-        $thumb = if ($thumbNode) { $thumbNode.GetAttribute("url") } else { "" }
-
-        $entries += [PSCustomObject]@{
-            VideoId        = $videoId
-            Title          = $title
-            Link           = $link
-            Thumbnail      = $thumb
-            # Highest-res, full 9:16 crop YouTube serves for Shorts (falls back below if missing).
-            ThumbnailHiRes = "https://i.ytimg.com/vi/$videoId/oardefault.jpg"
-        }
-    }
-    # Feed is newest-first; reverse so index 0 = oldest.
-    [array]::Reverse($entries)
-    return $entries
-}
-
-function Send-TelegramVideo([string]$token, [string]$chatId, $video, [string]$channelName) {
-    $kind = if ($video.Link -match "/shorts/") { "Short" } else { "Video" }
-    $caption = '<a href="' + $video.Link + '">' + (Escape-Html $video.Title) + '</a>' + "`n`n" + $kind + "`n`n" + '<b>' + (Escape-Html $channelName) + '</b>'
-    $uri = "https://api.telegram.org/bot$token/sendPhoto"
-
-    # Try the high-res vertical crop first; fall back to the feed's default
-    # thumbnail if that variant doesn't exist for this video (e.g. non-Shorts uploads).
-    $candidates = @($video.ThumbnailHiRes, $video.Thumbnail) | Where-Object { $_ }
-
-    foreach ($photoUrl in $candidates) {
-        $body = @{
-            chat_id    = $chatId
-            photo      = $photoUrl
-            caption    = $caption
-            parse_mode = "HTML"
-        } | ConvertTo-Json
-
-        try {
-            $result = Invoke-RestMethod -Uri $uri -Method Post -Body $body -ContentType "application/json"
-            if ($result.ok) {
-                return
-            }
-            Write-Warning "Telegram API error for $photoUrl : $($result | ConvertTo-Json -Compress)"
-        } catch {
-            Write-Warning "Telegram request failed for $photoUrl : $_"
-        }
-    }
-    Write-Warning "All thumbnail variants failed for '$($video.Title)'; notification not sent."
-}
+. (Join-Path $ScriptDir "Common.ps1")
 
 if (-not (Test-Path $ChannelsPath)) {
     Write-Error "Missing channels file: $ChannelsPath"
