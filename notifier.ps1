@@ -81,7 +81,7 @@ foreach ($channel in $channels) {
     foreach ($video in $newEntries) {
         if (-not $video) { continue }
         Write-Host "[$name] New video: $($video.Title) ($($video.Link))"
-        Send-TelegramVideo $token $chatId $video $name
+        Send-TelegramVideoBest $token $chatId $video $name
     }
 
     $state[$channelId] = $entries[-1].VideoId

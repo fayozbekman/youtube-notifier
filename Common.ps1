@@ -77,6 +77,72 @@ function Send-TelegramVideo([string]$token, [string]$chatId, $video, [string]$ch
     Write-Warning "All thumbnail variants failed for '$($video.Title)'; notification not sent."
 }
 
+function Send-TelegramVideoFile([string]$token, [string]$chatId, $video, [string]$channelName) {
+    $kind = if ($video.Link -match "/shorts/") { "Short" } else { "Video" }
+    $caption = '<a href="' + $video.Link + '">' + (Escape-Html $video.Title) + '</a>' + "`n`n" + $kind + "`n`n" + '<b>' + (Escape-Html $channelName) + '</b>'
+
+    $ytdlp = Get-Command yt-dlp -ErrorAction SilentlyContinue
+    if (-not $ytdlp) {
+        Write-Warning "yt-dlp not available; skipping video download for '$($video.Title)'."
+        return $false
+    }
+
+    $tmpFile = Join-Path ([System.IO.Path]::GetTempPath()) "$($video.VideoId).mp4"
+    try {
+        if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
+
+        # Best quality up to 1080p, merged into a single mp4 file.
+        & yt-dlp `
+            -f "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[height<=1080]" `
+            --merge-output-format mp4 `
+            --no-progress --quiet `
+            -o $tmpFile `
+            $video.Link 2>&1 | ForEach-Object { Write-Host "  yt-dlp: $_" }
+
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path $tmpFile)) {
+            Write-Warning "yt-dlp failed for $($video.Link) (exit $LASTEXITCODE)"
+            return $false
+        }
+
+        $sizeBytes = (Get-Item $tmpFile).Length
+        $maxBytes = 49 * 1024 * 1024  # stay under Telegram's ~50MB bot upload limit
+        if ($sizeBytes -gt $maxBytes) {
+            Write-Warning "Video too large to send ($([math]::Round($sizeBytes / 1MB, 1)) MB): $($video.Title)"
+            return $false
+        }
+
+        $uri = "https://api.telegram.org/bot$token/sendVideo"
+        $form = @{
+            chat_id    = $chatId
+            caption    = $caption
+            parse_mode = "HTML"
+            video      = Get-Item $tmpFile
+        }
+        $result = Invoke-RestMethod -Uri $uri -Method Post -Form $form
+        if ($result.ok) {
+            return $true
+        }
+        Write-Warning "Telegram sendVideo API error: $($result | ConvertTo-Json -Compress)"
+        return $false
+    } catch {
+        Write-Warning "Send-TelegramVideoFile failed for '$($video.Title)': $_"
+        return $false
+    } finally {
+        if (Test-Path $tmpFile) { Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+# Tries to send the actual video file at up to 1080p; falls back to the
+# thumbnail+link format if the download fails, is too large for Telegram's
+# ~50MB bot upload limit, or yt-dlp is unavailable/blocked.
+function Send-TelegramVideoBest([string]$token, [string]$chatId, $video, [string]$channelName) {
+    if (Send-TelegramVideoFile $token $chatId $video $channelName) {
+        return
+    }
+    Write-Host "Falling back to thumbnail for '$($video.Title)'"
+    Send-TelegramVideo $token $chatId $video $channelName
+}
+
 function Send-TelegramText([string]$token, [string]$chatId, [string]$text) {
     $uri = "https://api.telegram.org/bot$token/sendMessage"
     $payload = @{

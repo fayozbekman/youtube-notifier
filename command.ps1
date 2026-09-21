@@ -92,7 +92,7 @@ foreach ($update in $updates.result) {
     [array]::Reverse($lastFive)
 
     foreach ($video in $lastFive) {
-        Send-TelegramVideo $token $chatId $video $match.name
+        Send-TelegramVideoBest $token $chatId $video $match.name
     }
 }
 
