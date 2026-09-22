@@ -81,10 +81,14 @@ foreach ($channel in $channels) {
     foreach ($video in $newEntries) {
         if (-not $video) { continue }
         Write-Host "[$name] New video: $($video.Title) ($($video.Link))"
-        Send-TelegramVideoBest $token $chatId $video $name
+        Send-TelegramVideo $token $chatId $video $name
     }
 
     $state[$channelId] = $entries[-1].VideoId
 }
 
 $state | ConvertTo-Json | Set-Content -Path $StatePath -Encoding utf8
+
+# Explicitly succeed: a stray non-zero $LASTEXITCODE from an external tool
+# earlier in the script would otherwise make the whole step report failed.
+exit 0

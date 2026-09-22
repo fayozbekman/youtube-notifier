@@ -92,8 +92,12 @@ foreach ($update in $updates.result) {
     [array]::Reverse($lastFive)
 
     foreach ($video in $lastFive) {
-        Send-TelegramVideoBest $token $chatId $video $match.name
+        Send-TelegramVideo $token $chatId $video $match.name
     }
 }
 
 @{ offset = $maxUpdateId + 1 } | ConvertTo-Json | Set-Content -Path $OffsetPath -Encoding utf8
+
+# Explicitly succeed: a stray non-zero $LASTEXITCODE from an external tool
+# earlier in the script would otherwise make the whole step report failed.
+exit 0
